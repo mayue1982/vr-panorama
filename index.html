@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR全景景点</title>
+
+    <!-- A-Frame VR框架 -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+    <!-- 使用 Import Map 加载 ES Module -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            overflow: hidden;
+            background: #000;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* 加载界面 */
+        .loading-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.8s ease;
+        }
+
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-title {
+            font-size: 2rem;
+            color: #fff;
+            margin-bottom: 2rem;
+        }
+
+        .loading-spinner {
+            width: 50px; height: 50px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #63b3ed;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .loading-tip {
+            color: rgba(255,255,255,0.7);
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .loading-status {
+            color: #63b3ed;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            max-width: 300px;
+        }
+
+        /* 顶部栏 */
+        .header {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            padding: 15px 20px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .spot-name {
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .format-badge {
+            background: linear-gradient(135deg, #68d391, #48bb78);
+            padding: 4px 10px;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 0.7rem;
+            margin-left: 10px;
+        }
+
+        /* 控制面板 */
+        .control-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+            padding: 10px 18px;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
+        .control-btn {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .control-btn:hover {
+            background: rgba(99,179,237,0.4);
+            transform: scale(1.1);
+        }
+
+        .control-btn.active { background: #63b3ed; }
+        
+        .control-btn.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* 面板通用 */
+        .panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            width: 90%;
+            max-width: 450px;
+            background: rgba(20,30,48,0.98);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 25px;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .panel.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .panel-title {
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .close-btn {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+
+        .close-btn:hover { background: rgba(255,100,100,0.3); }
+
+        /* 上传区域 */
+        .upload-area {
+            border: 2px dashed rgba(99,179,237,0.5);
+            border-radius: 15px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(99,179,237,0.05);
+            margin-bottom: 15px;
+        }
+
+        .upload-area:hover {
+            border-color: #63b3ed;
+            background: rgba(99,179,237,0.1);
+        }
+
+        .upload-area.dragover {
+            border-color: #63b3ed;
+            background: rgba(99,179,237,0.2);
+        }
+
+        .upload-icon { font-size: 3rem; margin-bottom: 15px; }
+        .upload-text { color: rgba(255,255,255,0.8); font-size: 1rem; }
+        .upload-hint { color: rgba(255,255,255,0.5); font-size: 0.8rem; margin-top: 8px; }
+        .file-input { display: none; }
+
+        /* 按钮 */
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border-radius: 10px;
+            border: none;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #63b3ed, #4299e1);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(99,179,237,0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #555;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* 已选文件 */
+        .selected-file {
+            background: rgba(99,179,237,0.1);
+            border: 1px solid rgba(99,179,237,0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            display: none;
+        }
+
+        .selected-file.show { display: flex; align-items: center; gap: 12px; }
+        .file-icon { font-size: 2rem; }
+        .file-info { flex: 1; }
+        .file-name { color: #fff; font-size: 0.9rem; word-break: break-all; }
+        .file-status { color: #68d391; font-size: 0.8rem; margin-top: 4px; }
+
+        /* 输入框 */
+        .input-group { margin-bottom: 15px; }
+        .input-group label {
+            display: block;
+            color: rgba(255,255,255,0.7);
+            margin-bottom: 6px;
+            font-size: 0.85rem;
+        }
+
+        .input-group input,
+        .input-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+            font-size: 0.95rem;
+            font-family: inherit;
+        }
+
+        .input-group textarea { min-height: 100px; resize: vertical; }
+
+        /* 遮罩 */
+        .overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 999;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .overlay.show { opacity: 1; visibility: visible; }
+
+        /* 提示 */
+        .toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 25px;
+            color: #fff;
+            font-size: 0.9rem;
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .toast.show { opacity: 1; }
+        .toast.success { background: rgba(104,211,145,0.95); }
+        .toast.error { background: rgba(252,129,129,0.95); }
+        .toast.info { background: rgba(99,179,237,0.95); }
+    </style>
+</head>
+<body>
+    <!-- 加载界面 -->
+    <div class="loading-screen" id="loadingScreen">
+        <h1 class="loading-title">🏔️ VR全景景点</h1>
+        <div class="loading-spinner"></div>
+        <p class="loading-tip">正在加载...</p>
+        <p class="loading-status" id="loadingStatus">初始化中...</p>
+    </div>
+
+    <!-- 顶部 -->
+    <div class="header">
+        <h1 class="spot-name">
+            🏔️ VR全景
+            <span class="format-badge" id="formatBadge">JPG</span>
+        </h1>
+    </div>
+
+    <!-- 提示 -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 控制面板 -->
+    <div class="control-panel">
+        <button class="control-btn" id="btnUpload" title="上传图片">🖼️</button>
+        <button class="control-btn" id="btnZoomIn" title="放大">🔍+</button>
+        <button class="control-btn" id="btnZoomOut" title="缩小">🔍-</button>
+        <button class="control-btn" id="btnRotate" title="自动旋转">🔄</button>
+    </div>
+
+    <!-- 遮罩 -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- 上传面板 -->
+    <div class="panel" id="uploadPanel">
+        <div class="panel-header">
+            <h2 class="panel-title">🖼️ 上传全景图</h2>
+            <button class="close-btn" id="closeUpload">✕</button>
+        </div>
+
+        <div class="upload-area" id="dropZone">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">点击或拖拽上传文件</div>
+            <div class="upload-hint">支持 .hdr .exr .jpg .png</div>
+            <input type="file" id="fileInput" class="file-input" accept=".hdr,.exr,.jpg,.jpeg,.png">
+        </div>
+
+        <div class="selected-file" id="selectedFile">
+            <span class="file-icon" id="fileIcon">📄</span>
+            <div class="file-info">
+                <div class="file-name" id="fileName"></div>
+                <div class="file-status" id="fileStatus">已选择</div>
+            </div>
+            <button class="close-btn" id="removeFile">✕</button>
+        </div>
+
+        <button class="btn btn-primary" id="loadBtn" disabled>加载图片</button>
+
+        <div style="margin-top: 20px; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px;">
+            <div style="color: #fff; font-size: 0.9rem; margin-bottom: 10px;">📡 测试HDR加载（直接用URL）</div>
+            <button class="btn" id="testHDRBtn" style="background: linear-gradient(135deg, #68d391, #48bb78); margin-bottom: 10px;">
+                测试 Poly Haven HDR
+            </button>
+        </div>
+    </div>
+
+    <!-- A-Frame VR场景 -->
+    <a-scene id="mainScene" vr-mode-ui="enabled: true" loading-screen="enabled: false" renderer="antialias: true">
+        <a-sky id="panorama" rotation="0 -90 0"></a-sky>
+        <a-camera 
+            id="mainCamera"
+            look-controls="enabled: true; touchEnabled: true; magicWindowTrackingEnabled: true; pointerLockEnabled: false; reverseMouseDrag: false; reverseTouchDrag: false"
+            wasd-controls="enabled: false" 
+            fov="80">
+            <a-cursor color="#63b3ed" fuse="false" scale="0.4 0.4 0.4"></a-cursor>
+        </a-camera>
+    </a-scene>
+
+    <script type="module">
+        // ========== 导入 Three.js 模块 ==========
+        import * as THREE from 'three';
+        import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+        import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+
+        // 存储加载器供后续使用
+        window.THREE = THREE;
+        window.RGBELoader = RGBELoader;
+        window.EXRLoader = EXRLoader;
+
+        console.log('Three.js 模块加载成功!');
+        console.log('RGBELoader:', typeof RGBELoader);
+        console.log('EXRLoader:', typeof EXRLoader);
+
+        // ========== 全局变量 ==========
+        let selectedFile = null;
+
+        // ========== 工具函数 ==========
+        function showToast(msg, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 2500);
+        }
+
+        function showLoading(msg = '加载中...') {
+            document.getElementById('loadingStatus').textContent = msg;
+            document.getElementById('loadingScreen').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingScreen').classList.add('hidden');
+        }
+
+        function getFileExt(filename) {
+            return filename.split('.').pop().toLowerCase();
+        }
+
+        // ========== 面板控制 ==========
+        const overlay = document.getElementById('overlay');
+        const uploadPanel = document.getElementById('uploadPanel');
+
+        function openPanel(panel) {
+            overlay.classList.add('show');
+            panel.classList.add('show');
+        }
+
+        function closeAll() {
+            overlay.classList.remove('show');
+            uploadPanel.classList.remove('show');
+        }
+
+        overlay.addEventListener('click', closeAll);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+
+        document.getElementById('btnUpload').addEventListener('click', () => openPanel(uploadPanel));
+        document.getElementById('closeUpload').addEventListener('click', closeAll);
+
+        // ========== 文件上传 ==========
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const selectedFileDiv = document.getElementById('selectedFile');
+        const fileIcon = document.getElementById('fileIcon');
+        const fileName = document.getElementById('fileName');
+        const fileStatus = document.getElementById('fileStatus');
+        const removeFile = document.getElementById('removeFile');
+        const loadBtn = document.getElementById('loadBtn');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', e => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            const ext = getFileExt(file.name);
+
+            selectedFileDiv.classList.add('show');
+            fileName.textContent = file.name;
+
+            if (ext === 'hdr') {
+                fileIcon.textContent = '🎨';
+                fileStatus.textContent = 'HDR全景图';
+            } else if (ext === 'exr') {
+                fileIcon.textContent = '🎬';
+                fileStatus.textContent = 'EXR全景图';
+            } else {
+                fileIcon.textContent = '🖼️';
+                fileStatus.textContent = '普通图片';
+            }
+
+            loadBtn.disabled = false;
+        }
+
+        removeFile.addEventListener('click', e => {
+            e.stopPropagation();
+            selectedFile = null;
+            selectedFileDiv.classList.remove('show');
+            loadBtn.disabled = true;
+            fileInput.value = '';
+        });
+
+        // ========== 核心：加载图片 ==========
+        loadBtn.addEventListener('click', () => {
+            if (!selectedFile) {
+                showToast('请先选择文件', 'error');
+                return;
+            }
+
+            const file = selectedFile;
+            const ext = getFileExt(file.name);
+            const fileNameText = file.name;
+
+            console.log('开始加载文件:', fileNameText, '格式:', ext);
+
+            closeAll();
+            showLoading(`正在加载 ${fileNameText}...`);
+
+            if (ext === 'hdr') {
+                // HDR使用ObjectURL
+                const objectUrl = URL.createObjectURL(file);
+                loadHDR(objectUrl, fileNameText);
+            } else if (ext === 'exr') {
+                // EXR使用ObjectURL
+                const objectUrl = URL.createObjectURL(file);
+                loadEXR(objectUrl, fileNameText);
+            } else {
+                // 普通图片使用FileReader+base64
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    console.log('图片读取完成, 数据长度:', e.target.result.length);
+                    loadNormalImage(e.target.result, fileNameText);
+                };
+                reader.onerror = () => {
+                    console.error('图片读取失败');
+                    showToast('图片读取失败', 'error');
+                    hideLoading();
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 加载普通图片
+        function loadNormalImage(url, fileName) {
+            console.log('开始加载普通图片:', fileName, 'URL长度:', url.length);
+            
+            const panorama = document.getElementById('panorama');
+            
+            // 先清空背景
+            const scene = document.querySelector('a-scene');
+            scene.object3D.background = null;
+            
+            // 设置图片源
+            panorama.setAttribute('src', url);
+            panorama.setAttribute('visible', 'true');
+            
+            // 监听图片加载完成
+            const img = new Image();
+            img.onload = () => {
+                console.log('图片实际加载成功, 尺寸:', img.width, 'x', img.height);
+                document.getElementById('formatBadge').textContent = getFileExt(fileName).toUpperCase().substring(0, 3);
+                document.getElementById('formatBadge').style.background = 'linear-gradient(135deg, #63b3ed, #4299e1)';
+                showToast(`已加载: ${fileName}`, 'success');
+                hideLoading();
+                resetUploadState();
+            };
+            img.onerror = () => {
+                console.error('图片加载失败');
+                showToast('图片加载失败', 'error');
+                hideLoading();
+            };
+            img.src = url;
+        }
+        
+        function resetUploadState() {
+            selectedFile = null;
+            selectedFileDiv.classList.remove('show');
+            loadBtn.disabled = true;
+            fileInput.value = '';
+        }
+
+        // 加载HDR文件
+        function loadHDR(url, fileName) {
+            console.log('开始加载 HDR:', url);
+            
+            const loader = new RGBELoader();
+            loader.load(
+                url,
+                (texture) => {
+                    console.log('HDR 纹理加载成功');
+                    texture.mapping = THREE.EquirectangularReflectionMapping;
+                    
+                    const scene = document.querySelector('a-scene');
+                    scene.object3D.background = texture;
+
+                    document.getElementById('panorama').setAttribute('visible', 'false');
+
+                    document.getElementById('formatBadge').textContent = 'HDR';
+                    document.getElementById('formatBadge').style.background = 'linear-gradient(135deg, #68d391, #48bb78)';
+
+                    showToast(`HDR已加载: ${fileName}`, 'success');
+                    hideLoading();
+                    resetUploadState();
+                },
+                (progress) => {
+                    if (progress.total > 0) {
+                        const pct = Math.round(progress.loaded / progress.total * 100);
+                        showLoading(`HDR加载中... ${pct}%`);
+                    }
+                },
+                (error) => {
+                    console.error('HDR加载失败:', error);
+                    showToast('HDR加载失败', 'error');
+                    hideLoading();
+                }
+            );
+        }
+
+        // 加载EXR文件
+        function loadEXR(url, fileName) {
+            console.log('开始加载 EXR:', url);
+            
+            const loader = new EXRLoader();
+            loader.load(
+                url,
+                (texture) => {
+                    console.log('EXR 纹理加载成功');
+                    texture.mapping = THREE.EquirectangularReflectionMapping;
+                    
+                    const scene = document.querySelector('a-scene');
+                    scene.object3D.background = texture;
+
+                    document.getElementById('panorama').setAttribute('visible', 'false');
+
+                    document.getElementById('formatBadge').textContent = 'EXR';
+                    document.getElementById('formatBadge').style.background = 'linear-gradient(135deg, #68d391, #48bb78)';
+
+                    showToast(`EXR已加载: ${fileName}`, 'success');
+                    hideLoading();
+                    resetUploadState();
+                },
+                (progress) => {
+                    if (progress.total > 0) {
+                        const pct = Math.round(progress.loaded / progress.total * 100);
+                        showLoading(`EXR加载中... ${pct}%`);
+                    }
+                },
+                (error) => {
+                    console.error('EXR加载失败:', error);
+                    showToast('EXR加载失败', 'error');
+                    hideLoading();
+                }
+            );
+        }
+
+        // ========== 其他控制 ==========
+        document.getElementById('btnRotate').addEventListener('click', function() {
+            this.classList.toggle('active');
+            const isActive = this.classList.contains('active');
+            const panorama = document.getElementById('panorama');
+
+            if (isActive) {
+                let rot = 0;
+                window.rotateTimer = setInterval(() => {
+                    rot += 0.1;
+                    panorama.setAttribute('rotation', `0 ${rot} 0`);
+                }, 30);
+                showToast('自动旋转已开启', 'info');
+            } else {
+                clearInterval(window.rotateTimer);
+                showToast('自动旋转已关闭', 'info');
+            }
+        });
+
+        // ========== 远近缩放功能 ==========
+        let currentFOV = 80;
+        const minFOV = 30;
+        const maxFOV = 110;
+        
+        const zoomIn = document.getElementById('btnZoomIn');
+        const zoomOut = document.getElementById('btnZoomOut');
+        
+        function updateZoom(delta) {
+            const camera = document.querySelector('a-camera');
+            currentFOV = Math.max(minFOV, Math.min(maxFOV, currentFOV + delta));
+            camera.setAttribute('fov', currentFOV);
+            
+            // 更新按钮状态
+            zoomIn.classList.toggle('disabled', currentFOV >= maxFOV);
+            zoomOut.classList.toggle('disabled', currentFOV <= minFOV);
+            
+            const zoomLevel = Math.round((1 - (currentFOV - minFOV) / (maxFOV - minFOV)) * 100);
+            showToast(`缩放: ${zoomLevel}%`, 'info');
+        }
+        
+        zoomIn.addEventListener('click', () => updateZoom(-15));
+        zoomOut.addEventListener('click', () => updateZoom(15));
+        
+        // 鼠标滚轮缩放
+        document.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            updateZoom(e.deltaY > 0 ? 5 : -5);
+        }, { passive: false });
+        
+        // 触摸双指缩放
+        let lastTouchDistance = 0;
+        document.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (lastTouchDistance > 0) {
+                    updateZoom((lastTouchDistance - distance) * 0.3);
+                }
+                lastTouchDistance = distance;
+            }
+        }, { passive: false });
+        
+        document.addEventListener('touchend', () => {
+            lastTouchDistance = 0;
+        });
+
+        // 测试HDR按钮
+        document.getElementById('testHDRBtn').addEventListener('click', () => {
+            const testHDRUrl = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr';
+            console.log('测试加载 Poly Haven HDR');
+            closeAll();
+            showLoading('正在加载测试HDR...');
+            loadHDR(testHDRUrl, 'polyhaven_test.hdr');
+        });
+
+        // ========== 初始化 ==========
+        window.addEventListener('load', () => {
+            const scene = document.querySelector('a-scene');
+            if (scene.hasLoaded) {
+                init();
+            } else {
+                scene.addEventListener('loaded', init);
+            }
+        });
+
+        function init() {
+            // 禁用A-Frame的look-controls，使用原生Three.js触摸控制
+            const camera = document.getElementById('mainCamera');
+            if (camera) {
+                camera.setAttribute('look-controls', 'enabled: false');
+                console.log('已禁用A-Frame look-controls，使用原生触摸控制');
+            }
+            
+            // 初始化原生Three.js触摸控制
+            initNativeTouchControls();
+            
+            // 加载默认EXR全景
+            loadDefaultEXR();
+        }
+        
+        // ========== 原生Three.js触摸控制 ==========
+        let touchStartX = 0, touchStartY = 0;
+        let currentRotationX = 0, currentRotationY = 0;
+        let isTouching = false;
+        
+        function initNativeTouchControls() {
+            const canvas = document.querySelector('a-scene').canvas;
+            
+            // 触摸开始
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isTouching = true;
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                }
+            }, { passive: true });
+            
+            // 触摸移动
+            canvas.addEventListener('touchmove', (e) => {
+                if (isTouching && e.touches.length === 1) {
+                    e.preventDefault();
+                    
+                    const deltaX = e.touches[0].clientX - touchStartX;
+                    const deltaY = e.touches[0].clientY - touchStartY;
+                    
+                    // 灵敏度调整
+                    const sensitivity = 0.3;
+                    currentRotationY -= deltaX * sensitivity;
+                    currentRotationX -= deltaY * sensitivity;
+                    
+                    // 限制上下视角范围
+                    currentRotationX = Math.max(-85, Math.min(85, currentRotationX));
+                    
+                    // 应用旋转到camera
+                    const cameraEl = document.getElementById('mainCamera');
+                    cameraEl.setAttribute('rotation', `${currentRotationX} ${currentRotationY} 0`);
+                    
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                }
+            }, { passive: false });
+            
+            // 触摸结束
+            canvas.addEventListener('touchend', () => {
+                isTouching = false;
+            }, { passive: true });
+            
+            // 鼠标控制（桌面端）
+            let isMouseDown = false;
+            canvas.addEventListener('mousedown', (e) => {
+                isMouseDown = true;
+                touchStartX = e.clientX;
+                touchStartY = e.clientY;
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (isMouseDown) {
+                    const deltaX = e.clientX - touchStartX;
+                    const deltaY = e.clientY - touchStartY;
+                    
+                    const sensitivity = 0.5;
+                    currentRotationY -= deltaX * sensitivity;
+                    currentRotationX -= deltaY * sensitivity;
+                    
+                    currentRotationX = Math.max(-85, Math.min(85, currentRotationX));
+                    
+                    const cameraEl = document.getElementById('mainCamera');
+                    cameraEl.setAttribute('rotation', `${currentRotationX} ${currentRotationY} 0`);
+                    
+                    touchStartX = e.clientX;
+                    touchStartY = e.clientY;
+                }
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+            
+            canvas.addEventListener('mouseleave', () => {
+                isMouseDown = false;
+            });
+            
+            console.log('原生触摸控制已初始化');
+        }
+
+        async function loadDefaultEXR() {
+            try {
+                showLoading('正在加载全景...');
+                
+                const response = await fetch('./default.exr');
+                const buffer = await response.arrayBuffer();
+                
+                const loader = new EXRLoader();
+                loader.load(
+                    './default.exr',
+                    (texture) => {
+                        texture.mapping = THREE.EquirectangularReflectionMapping;
+                        const scene = document.querySelector('a-scene');
+                        scene.object3D.background = texture;
+                        document.getElementById('panorama').setAttribute('visible', 'false');
+                        document.getElementById('formatBadge').textContent = 'EXR';
+                        document.getElementById('formatBadge').style.background = 'linear-gradient(135deg, #68d391, #48bb78)';
+                        hideLoading();
+                    },
+                    (progress) => {
+                        if (progress.total > 0) {
+                            const pct = Math.round(progress.loaded / progress.total * 100);
+                            showLoading(`加载中... ${pct}%`);
+                        }
+                    },
+                    (error) => {
+                        console.error('默认EXR加载失败:', error);
+                        // 加载失败则用默认图片
+                        loadFallback();
+                    }
+                );
+            } catch (error) {
+                console.error('EXR加载异常:', error);
+                loadFallback();
+            }
+        }
+
+        function loadFallback() {
+            const defaultUrl = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=4096';
+            document.getElementById('panorama').setAttribute('src', defaultUrl);
+            document.getElementById('panorama').setAttribute('visible', 'true');
+            hideLoading();
+        }
+    </script>
+</body>
+</html>
