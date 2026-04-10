@@ -350,6 +350,7 @@
         <button class="control-btn" id="btnZoomIn" title="放大">🔍+</button>
         <button class="control-btn" id="btnZoomOut" title="缩小">🔍-</button>
         <button class="control-btn" id="btnRotate" title="自动旋转">🔄</button>
+        <button class="control-btn" id="btnVR" title="VR模式">🕶️</button>
     </div>
 
     <!-- 遮罩 -->
@@ -692,6 +693,15 @@
             } else {
                 clearInterval(window.rotateTimer);
                 showToast('自动旋转已关闭', 'info');
+            }
+        });
+
+        document.getElementById('btnVR').addEventListener('click', () => {
+            const scene = document.querySelector('a-scene');
+            if (scene.is('vr-mode')) {
+                scene.exitVR();
+            } else {
+                scene.enterVR();
             }
         });
 
